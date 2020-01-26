@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.image.Image?>
+<?import javafx.scene.image.ImageView?>
+<?import javafx.scene.layout.AnchorPane?>
+<?import javafx.scene.text.Font?>
+
+<AnchorPane fx:id="background" prefHeight="200" prefWidth="320" xmlns="http://javafx.com/javafx/8.0.141" xmlns:fx="http://javafx.com/fxml/1" fx:controller="observer.GUIController">
+   <children>
+      <Button fx:id="discoveryButton" layoutX="90.0" layoutY="88.0" mnemonicParsing="false" onAction="#discoveryButtonPressed" text="Run Dynamic Discovery" />
+      <Label fx:id="findServerText" layoutX="87.0" layoutY="29.0" text="Let's find a server!">
+         <font>
+            <Font name="System Bold" size="17.0" />
+         </font>
+      </Label>
+      <Label fx:id="noServerFoundText" layoutX="76.0" layoutY="146.0" text="No server found in the network!" textFill="RED" visible="false" />
+      <Label fx:id="waitingText" layoutX="90.0" layoutY="146.0" text="Waiting for game to start..." visible="false" />
+      <ImageView fx:id="grid" fitHeight="150.0" fitWidth="200.0" layoutX="85.0" layoutY="8.0" pickOnBounds="true" preserveRatio="true" visible="false">
+         <image>
+            <Image url="@images/grid.gif" />
+         </image>
+      </ImageView>
+      <Button fx:id="oneButton" accessibleHelp="26" accessibleText="106" layoutX="58.0" layoutY="166.0" mnemonicParsing="false" onAction="#handleButtonClick" text="1" visible="false" />
+      <Button fx:id="twoButton" accessibleHelp="26" accessibleText="156" layoutX="81.0" layoutY="166.0" mnemonicParsing="false" onAction="#handleButtonClick" text="2" visible="false" />
+      <Button fx:id="threeButton" accessibleHelp="26" accessibleText="206" layoutX="104.0" layoutY="166.0" mnemonicParsing="false" onAction="#handleButtonClick" text="3" visible="false" />
+      <Button fx:id="fourButton" accessibleHelp="76" accessibleText="106" layoutX="127.0" layoutY="166.0" mnemonicParsing="false" onAction="#handleButtonClick" text="4" visible="false" />
+      <Button fx:id="fiveButton" accessibleHelp="76" accessibleText="156" layoutX="150.0" layoutY="166.0" mnemonicParsing="false" onAction="#handleButtonClick" text="5" visible="false" />
+      <Button fx:id="sixButton" accessibleHelp="76" accessibleText="206" layoutX="173.0" layoutY="166.0" mnemonicParsing="false" onAction="#handleButtonClick" text="6" visible="false" />
+      <Button fx:id="sevenButton" accessibleHelp="126" accessibleText="106" layoutX="196.0" layoutY="166.0" mnemonicParsing="false" onAction="#handleButtonClick" text="7" visible="false" />
+      <Button fx:id="eightButton" accessibleHelp="126" accessibleText="156" layoutX="219.0" layoutY="166.0" mnemonicParsing="false" onAction="#handleButtonClick" text="8" visible="false" />
+      <Button fx:id="nineButton" accessibleHelp="126" accessibleText="206" layoutX="242.0" layoutY="166.0" mnemonicParsing="false" onAction="#handleButtonClick" text="9" visible="false" />
+   </children>
+</AnchorPane>

@@ -1,0 +1,470 @@
+package player;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.MulticastSocket;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketAddress;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Random;
+import java.util.ResourceBundle;
+import javafx.application.Platform;
+import javafx.event.ActionEvent;
+import javafx.fxml.FXML;
+import javafx.fxml.Initializable;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.image.ImageView;
+import javafx.scene.layout.AnchorPane;
+
+public class GUIController implements Initializable
+{
+
+    MulticastSocket multicastSocket;
+    InetAddress group; 
+
+    @FXML
+    public Button discoveryButton; 
+
+    @FXML
+    public Label noServerFoundText; 
+
+    @FXML
+    public Label waitingText; 
+
+    @FXML
+    public Label findServerText; 
+
+    @FXML
+    public Button oneButton; 
+
+    @FXML
+    public Button twoButton; 
+
+    @FXML
+    public Button threeButton; 
+
+    @FXML
+    public Button fourButton; 
+
+    @FXML
+    public Button fiveButton; 
+
+    @FXML
+    public Button sixButton; 
+
+    @FXML
+    public Button sevenButton; 
+
+    @FXML
+    public Button eightButton; 
+
+    @FXML
+    public Button nineButton; 
+
+    @FXML
+    ImageView grid; 
+
+    @FXML
+    AnchorPane background; 
+
+    ArrayList<Button> buttons = new ArrayList<>(); 
+
+    CommunicationHandler handler; 
+
+    char symbol; 
+
+    @Override
+    public void initialize(URL url, ResourceBundle rb) 
+    {
+        try 
+        {
+            multicastSocket = new MulticastSocket(null); 
+            multicastSocket.setLoopbackMode(true); // 
+
+            SocketAddress myAddress = new InetSocketAddress("192.168.0.132", 7777); 
+
+            multicastSocket.bind(myAddress); 
+
+            
+             
+            multicastSocket.setSoTimeout(1000); 
+
+            group = InetAddress.getByName("230.0.0.0"); 
+
+            multicastSocket.joinGroup(group); 
+        } catch (IOException ex) 
+        {
+            System.out.println("Failed to create multicast socket!");
+        }
+
+		// Add all buttons to our array of buttons
+        buttons.addAll(Arrays.asList(oneButton, twoButton, threeButton, fourButton, fiveButton, sixButton, sevenButton, eightButton, nineButton));
+
+        for (Button button : buttons) 
+        {
+            button.setDisable(true); 
+        }
+    }
+
+    @FXML
+    private void discoveryButtonPressed() 
+    {
+        sendMessage("Player", group); 
+        byte[] buffer = new byte[1024]; 
+        DatagramPacket packet = new DatagramPacket(buffer, buffer.length); 
+        try 
+        {
+            multicastSocket.receive(packet); 
+
+            String message = new String(packet.getData()).trim(); 
+
+            if (message.equals("OK")) 
+            {
+                String serverIP = packet.getAddress().getHostAddress(); 
+                int serverPort = packet.getPort(); 
+                Socket socket = new Socket(serverIP, serverPort); 
+                System.out.println("Connection with server established!"); 
+
+                findServerText.setText("Connection Successful!"); 
+                noServerFoundText.setVisible(false); 
+                discoveryButton.setDisable(true); 
+                waitingText.setVisible(true); 
+
+                handler = new CommunicationHandler(socket, this); 
+                Thread thread = new Thread(handler); 
+                thread.setDaemon(true); 
+                thread.start(); 
+            }
+        } catch (IOException ex) 
+        {
+            noServerFoundText.setVisible(true);
+        }
+    }
+
+    public static void exit() 
+    {
+        System.exit(0);
+    }
+
+    public void sendMessage(String message, InetAddress destinationAddress) 
+    {
+        DatagramPacket packet = new DatagramPacket(message.getBytes(), message.length(), destinationAddress, 7777); 
+        try 
+        {
+            multicastSocket.send(packet); 
+        } catch (IOException exception) 
+        {
+            System.out.println("Failed to send packet!");
+        }
+    }
+
+    @FXML
+    public void handleButtonClick(ActionEvent event) 
+    {
+        Button clickedButton = (Button) event.getSource(); 
+
+        if (handler.joinOrder == 0) 
+        {
+            handler.turn = false; 
+            int selectedSquareNumber = Integer.parseInt(clickedButton.getText()) - 1; 
+
+            handler.squares.set(selectedSquareNumber, 1); 
+
+            Boolean won = handler.checkWinCondition(); 
+ 
+            handler.sendToPlayer("Disable"); 
+            handler.sendToPlayer(clickedButton.getText()); 
+            if (won) 
+            {
+                System.out.println("You Won!"); 
+                handler.sendToPlayer("Lost"); 
+            } else 
+            {
+                handler.sendToPlayer("YourTurn"); 
+            }
+        }
+
+        Label symbolLabel = new Label(Character.toString(symbol)); 
+
+        symbolLabel.setLayoutX(Integer.parseInt(clickedButton.getAccessibleText())); 
+        symbolLabel.setLayoutY(Integer.parseInt(clickedButton.getAccessibleHelp())); 
+        symbolLabel.setStyle("-fx-font-weight: bold"); 
+
+        background.getChildren().add(symbolLabel); 
+
+        System.out.println(clickedButton.getText() + " is clicked!"); 
+        handler.sendToServer(clickedButton.getText()); 
+
+        clickedButton.setText("•"); 
+        clickedButton.setDisable(true); 
+
+        for (Button button : buttons) 
+        {
+            button.setDisable(true); 
+        }
+
+        buttons.remove(clickedButton); 
+    }
+
+}
+
+class CommunicationHandler implements Runnable 
+{
+
+    Socket socket; 
+    ServerSocket acceptorSocket; 
+    Socket otherPlayerSocket; 
+    String otherPlayerIP; 
+    DataOutputStream sendStream; 
+    DataInputStream receiveStream; 
+    GUIController controller; 
+    int ID = new Random().nextInt(); 
+    int joinOrder; 
+    Boolean turn = false; 
+    ArrayList<Integer> squares; 
+
+    
+    CommunicationHandler(Socket receivedSocket, GUIController receivedController)
+    {
+        socket = receivedSocket; 
+        controller = receivedController; 
+        try 
+        {
+            sendStream = new DataOutputStream(socket.getOutputStream()); 
+            receiveStream = new DataInputStream(socket.getInputStream()); 
+        } catch (IOException ex) 
+        {
+            System.out.println("Failed to create input/output stream!");
+        }
+
+        squares = new ArrayList<>(); 
+
+        for (int i = 0; i < 9; i++)
+        {
+            squares.add(0); 
+        }
+    }
+
+    @Override
+    public void run() 
+    {
+        while (true)
+        {
+            try 
+            {
+                String message = receiveStream.readUTF(); 
+                System.out.println("Received: " + message); 
+                if (message.startsWith("Start")) 
+                {
+                    controller.symbol = message.charAt(7); 
+                    Platform.runLater(new Runnable() 
+                    {
+                        @Override
+                        public void run() 
+                        {
+                            controller.discoveryButton.setVisible(false); 
+                            controller.findServerText.setVisible(false); 
+                            controller.noServerFoundText.setVisible(false); 
+                            controller.waitingText.setVisible(false); 
+
+                            for (Button button : controller.buttons) 
+                            {
+                                Platform.runLater(() -> button.setVisible(true));
+                            }
+
+                            controller.grid.setVisible(true); 
+                        }
+                    });
+                }
+                if (message.equals("YourTurn")) 
+                {
+                    turn = true; 
+                    for (Button button : controller.buttons)
+                    {
+                        Platform.runLater(() -> button.setDisable(false)); 
+                    }
+                }
+                if (message.equals("Disable")) 
+                {
+                    String buttonNumber = receiveStream.readUTF(); 
+                    System.out.println("Have to disable button: " + buttonNumber); 
+                    for (Button button : controller.buttons) 
+                    {
+                        if (button.getText().equals(buttonNumber)) 
+                        {
+                            Platform.runLater(() -> button.setDisable(true)); 
+                            Platform.runLater(() -> button.setText("•")); 
+                            controller.buttons.remove(button); 
+
+                            char otherPlayerSymbol = 'X'; 
+
+                            if (controller.symbol == 'X') 
+                            {
+                                otherPlayerSymbol = 'O'; 
+                            }
+
+                            Label symbolLabel = new Label(Character.toString(otherPlayerSymbol)); 
+                            symbolLabel.setLayoutX(Integer.parseInt(button.getAccessibleText())); 
+                            symbolLabel.setLayoutY(Integer.parseInt(button.getAccessibleHelp())); 
+                            symbolLabel.setStyle("-fx-font-weight: bold"); 
+
+                            Platform.runLater(() -> controller.background.getChildren().add(symbolLabel)); 
+
+                            break;
+                        }
+                    }
+                }
+                if (message.startsWith("IP")) 
+                {
+                    otherPlayerIP = message.substring(4); 
+                    System.out.println("[x] Opponent player's IP is: " + otherPlayerIP);
+                }
+                if (message.equals("Won")) 
+                {
+                    System.out.println("You Won!");
+                    break;
+                }
+                if (message.equals("Lost")) 
+                {
+                    System.out.println("You lost!");
+                    break;
+                }
+                if (message.startsWith("Token")) 
+                {
+                    try // Try to do the following
+                    {
+                        int tokenNumber = Integer.parseInt(message.substring(message.indexOf(" ") + 1)); 
+                        if (tokenNumber == 0) // If is 0, it means we joined the game first
+                        {
+                            joinOrder = 1; // We make our join order = 1
+                            sendStream.writeUTF("Token: " + ID); 
+                        } else
+                        {
+                            joinOrder = 2; 
+                            if (ID > tokenNumber) 
+                            {
+                                sendStream.writeUTF("Victory"); 
+                            } else // Otherwise
+                            {
+                                if (ID <= tokenNumber)
+                                {
+                                    sendStream.writeUTF("Concede");
+                                }
+                            }
+                        }
+                    } catch (IOException exception) 
+                    {
+                        System.out.println("Failed to send message!");
+                    }
+                }
+            } catch (IOException exception) 
+            {
+                System.out.println("Server crashed!"); 
+                if (joinOrder == 0) 
+                {
+                    System.out.println("Game can no longer continue, exiting."); // Since both server and player have crashed, the game can no longer continue
+                    System.exit(0);
+                } else
+                {
+                    if (joinOrder == 1) 
+                    {
+                        try 
+                        {
+                            ServerSocket serverSocket = new ServerSocket(7777); 
+                            socket = serverSocket.accept(); 
+                            sendStream = new DataOutputStream(socket.getOutputStream()); 
+                            receiveStream = new DataInputStream(socket.getInputStream()); 
+                            joinOrder = 0; 
+                        } catch (IOException ex) 
+                        {
+                            System.out.println("Failed to recover!");
+                        }
+                    } else
+                    {
+                        if (joinOrder == 2)
+                        {
+                            try // Try to do the following
+                            {
+                                socket = new Socket(InetAddress.getByName(otherPlayerIP), 7777); 
+                                sendStream = new DataOutputStream(socket.getOutputStream()); 
+                                receiveStream = new DataInputStream(socket.getInputStream()); 
+                                joinOrder = 0;
+                            } catch (IOException ex) 
+                            {
+                                System.out.println("Failed to connect!");
+                            }
+
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public void sendToServer(String buttonNumber) 
+    {
+        try // Try to do the following
+        {
+            sendStream.writeUTF(buttonNumber); 
+        } catch (IOException ex) 
+        {
+            System.out.println("Failed to send!");
+        }
+    }
+
+    public void sendToPlayer(String message) 
+    {
+        try 
+        {
+            sendStream.writeUTF(message); 
+        } catch (IOException ex) 
+        {
+            System.out.println("Failed to send!");
+        }
+    }
+
+    public Boolean checkWinCondition() 
+    {
+		
+        if (squares.get(0) == 1 && squares.get(1) == 1 && squares.get(2) == 1) 
+        {
+            return true;
+        }
+        if (squares.get(3) == 1 && squares.get(4) == 1 && squares.get(5) == 1) 
+        {
+            return true;
+        }
+        if (squares.get(6) == 1 && squares.get(7) == 1 && squares.get(8) == 1)  
+        {
+            return true;
+        }
+
+        if (squares.get(0) == 1 && squares.get(3) == 1 && squares.get(6) == 1)  
+        {
+            return true;
+        }
+        if (squares.get(1) == 1 && squares.get(4) == 1 && squares.get(7) == 1)  
+        {
+            return true;
+        }
+        if (squares.get(2) == 1 && squares.get(5) == 1 && squares.get(8) == 1)  
+        {
+            return true;
+        }
+
+        if (squares.get(0) == 1 && squares.get(4) == 1 && squares.get(8) == 1)  
+        {
+            return true;
+        }
+
+        return false; 
+    }
+}

@@ -1,0 +1,540 @@
+package server;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.MulticastSocket;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketAddress;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.ResourceBundle;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import javafx.application.Platform;
+import javafx.fxml.FXML;
+import javafx.fxml.Initializable;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.paint.Paint;
+
+public class GUIController implements Initializable
+{
+
+    @FXML
+    public Label player1Text; 
+
+    @FXML
+    public Label player2Text; 
+
+    @FXML
+    public Label observerText;
+
+    @FXML
+    public Button startGameButton;
+
+    public Socket observerSocket; 
+
+    public Thread playerOneThread; 
+    public Thread playerTwoThread; 
+
+    public PlayerHandler playerOneHandler; 
+    public PlayerHandler playerTwoHandler;
+
+    Boolean observerExists = false;
+
+    @Override
+    public void initialize(URL url, ResourceBundle rb)
+    {
+
+        MulticastHandler handler = new MulticastHandler(this);
+        Thread thread = new Thread(handler); 
+        thread.setDaemon(true);
+        thread.start();
+
+       
+        ConnectionAcceptor acceptor = new ConnectionAcceptor(this);
+        Thread acceptorThread = new Thread(acceptor);
+        acceptorThread.setDaemon(true); 
+        acceptorThread.start();
+    }
+
+    public static void exit()
+    {
+        System.exit(0);
+    }
+
+    @FXML
+    public void startButtonPressed()
+    {
+        startGameButton.setDisable(true);
+
+        playerOneThread.start();
+        playerTwoThread.start();
+
+        if (observerExists)
+        {
+            try
+            {
+                playerOneHandler.observerSendStream = new DataOutputStream(observerSocket.getOutputStream()); 
+                playerTwoHandler.observerSendStream = new DataOutputStream(observerSocket.getOutputStream()); 
+            } catch (IOException ex)
+            {
+                System.out.println("Failed to get input/output stream!");
+            }
+            try
+            {
+                playerOneHandler.observerSendStream.writeUTF("Start");
+            } catch (IOException ex)
+            {
+                System.out.println("Failed to send message!");
+            }
+        }
+    }
+}
+
+class MulticastHandler implements Runnable
+{
+
+    MulticastSocket multicastSocket;
+    GUIController controller;
+
+    MulticastHandler(GUIController receivedController)
+    {
+        try // Try to do the following
+        {
+            multicastSocket = new MulticastSocket(null);
+
+            SocketAddress myAddress = new InetSocketAddress("192.168.178.60", 7777); 
+
+            multicastSocket.bind(myAddress);
+
+            InetAddress group = InetAddress.getByName("230.0.0.0");
+
+            multicastSocket.joinGroup(group); 
+        } catch (IOException exception)
+        {
+            System.out.println(exception.getMessage());
+            GUIController.exit();
+        }
+
+        controller = receivedController;
+    }
+
+    @Override
+    public void run()
+    {
+        byte[] buffer = new byte[512];
+        DatagramPacket packet = null;
+        String message = null; 
+        int playersFound = 0;
+
+        while (playersFound != 3)
+        {
+            if (playersFound == 2)
+            {
+                Platform.runLater(() -> controller.startGameButton.setDisable(false));
+            }
+            try // Try to do the following
+            {
+                packet = new DatagramPacket(buffer, buffer.length); 
+
+                multicastSocket.receive(packet); 
+
+                message = new String(packet.getData(), 0, packet.getLength());
+
+                System.out.println("Received: " + message);
+                playersFound++;
+
+                // Now that we have a string, we have to see what it contains
+                if (message.equals("Player")) 
+                {
+                    System.out.println("equals");
+                    if (playersFound == 1)
+                    {
+                        sendMessage("OK", packet.getAddress()); 
+
+                        Platform.runLater(() -> controller.player1Text.setText("Player 1: Ready to play!"));
+
+                        Platform.runLater(() -> controller.player1Text.setTextFill(Paint.valueOf("green")));
+
+                    } else
+                    {
+                        if (playersFound == 2)
+                        {
+                            sendMessage("OK", packet.getAddress()); 
+
+                            Platform.runLater(() -> controller.player2Text.setText("Player 2: Ready to play!"));
+
+                            Platform.runLater(() -> controller.player2Text.setTextFill(Paint.valueOf("green")));
+
+                        } else
+                        {
+                            sendMessage("OK", packet.getAddress());
+
+                            Platform.runLater(() -> controller.observerText.setText("Observer: Ready to spectate!"));
+
+                            Platform.runLater(() -> controller.observerText.setTextFill(Paint.valueOf("green")));
+
+                            controller.observerExists = true;
+                        }
+                    }
+                }
+            } catch (IOException exception)
+            {
+                System.out.println(exception.getMessage());
+            }
+        }
+
+    }
+
+    public void sendMessage(String message, InetAddress destinationAddress)
+    {
+        DatagramPacket packet = new DatagramPacket(message.getBytes(), message.length(), destinationAddress, 7777);
+        try // Try to do the following 
+        {
+            multicastSocket.send(packet);
+        } catch (IOException exception)
+        {
+            System.out.println("Failed to send packet!");
+        }
+    }
+
+}
+
+class ConnectionAcceptor implements Runnable
+{
+
+    ServerSocket serverSocket = null;
+    GUIController controller;
+
+    ConnectionAcceptor(GUIController receivedController)
+    {
+        try
+        {
+            serverSocket = new ServerSocket(7777); 
+        } catch (IOException ex)
+        {
+            System.out.println("Failed to create a server socket!");
+        }
+
+        controller = receivedController;
+    }
+
+    @Override
+    public void run()
+    {
+        // In total we'll accept 3 connection requests, 2 by players + 1 by observer
+        Socket playerOneSocket = null;
+        Socket playerTwoSocket = null;
+        Socket observerSocket = null;
+
+        PlayerHandler playerOneHandler = null;
+        PlayerHandler playerTwoHandler = null;
+
+        Thread playerOneThread = null;
+        Thread playerTwoThread = null;
+
+       
+        try
+        {
+            playerOneSocket = serverSocket.accept();
+
+            playerOneHandler = new PlayerHandler(playerOneSocket, controller, playerTwoHandler);
+
+            playerOneHandler.symbol = 'X';
+
+            playerOneThread = new Thread(playerOneHandler);
+
+            playerOneThread.setDaemon(true); 
+
+        } catch (IOException ex)
+        {
+            System.out.println("Failed to accept player's connection request!");
+        }
+
+       
+        try
+       {
+            playerTwoSocket = serverSocket.accept();
+
+            playerTwoHandler = new PlayerHandler(playerTwoSocket, controller, playerOneHandler);
+
+            playerTwoHandler.symbol = 'O'; 
+
+            playerTwoThread = new Thread(playerTwoHandler); 
+
+            playerTwoThread.setDaemon(true); 
+
+        } catch (IOException ex)
+        {
+            System.out.println("Failed to accept player's connection request!");
+        }
+
+        playerOneHandler.ID = 1; 
+        playerTwoHandler.ID = 2;
+        playerOneHandler.otherPlayer = playerTwoHandler;
+
+	
+        controller.playerOneThread = playerOneThread;
+        controller.playerOneHandler = playerOneHandler;
+        controller.playerTwoThread = playerTwoThread;
+        controller.playerTwoHandler = playerTwoHandler;
+
+        try 
+        {
+            observerSocket = serverSocket.accept();
+            controller.observerSocket = observerSocket;
+        } catch (IOException ex)
+        {
+            System.out.println("Failed to accept observer's connection request!");
+        }
+    }
+}
+
+class PlayerHandler implements Runnable
+{
+
+    Socket playerSocket;
+    DataOutputStream sendStream;
+    DataInputStream receiveStream;
+    public DataOutputStream observerSendStream;
+    GUIController controller;
+
+    volatile Boolean turn = false;
+    volatile Boolean gamePlaying = true;
+    char symbol; 
+    PlayerHandler otherPlayer;
+    ArrayList<Integer> squares;
+    int ID;
+
+    PlayerHandler(Socket receivedSocket, GUIController receivedController, PlayerHandler handler)
+    {
+        playerSocket = receivedSocket;
+        controller = receivedController;
+
+        try 
+        {
+            sendStream = new DataOutputStream(playerSocket.getOutputStream());
+            receiveStream = new DataInputStream(playerSocket.getInputStream());
+        } catch (IOException ex)
+        {
+            System.out.println("Failed to create input/output stream!");
+        }
+
+        otherPlayer = handler;
+        squares = new ArrayList<>();
+
+        for (int i = 0; i < 9; i++)
+        {
+            squares.add(0);
+        }
+    }
+
+    @Override
+    public void run()
+    {
+        System.out.println("[x] Initiated player thread!");
+        if (ID == 1)
+        {
+            try 
+            {
+                sendStream.writeUTF("Token: 0"); 
+                String receivedToken = receiveStream.readUTF();
+                otherPlayer.sendStream.writeUTF(receivedToken);
+            } catch (IOException ex)
+            {
+                System.out.println("Error occured while reading/writing to input/output stream!");
+            }
+        }
+        if (ID == 2)
+        {
+            try 
+            {
+                String electionResult = receiveStream.readUTF();
+
+                if (electionResult.equals("Victory"))
+                {
+                    turn = true; 
+                } else
+                {
+                    otherPlayer.turn = true;
+                }
+            } catch (IOException ex)
+            {
+                System.out.println("Failed to receive message!");
+            }
+
+        }
+        try
+        {
+            sendStream.writeUTF("IP: " + ((InetSocketAddress) otherPlayer.playerSocket.getRemoteSocketAddress()).getAddress().toString().replace("/", "");
+            sendStream.writeUTF("Start: " + symbol);
+        } catch (IOException ex) 
+        {
+            System.out.println("Failed to send message!");
+        }
+        if (turn) 
+        {
+            sendTurnMessage();
+            System.out.println("Waiting for player response...");
+            try
+            {
+                String receivedMessage = receiveStream.readUTF();
+
+                int selectedSquareNumber = Integer.parseInt(receivedMessage) - 1; 
+
+                squares.set(selectedSquareNumber, 1);
+
+                Boolean won = checkWinCondition();
+
+                if (!won)
+                {
+                    turn = false; 
+
+                    notifyOtherPlayer(receivedMessage);
+                } else
+                {
+                    sendStream.writeUTF("Won");
+                    turn = false;
+                    otherPlayer.disableButton(receivedMessage);
+                    otherPlayer.gameOver(); 
+                }
+            } catch (IOException ex)
+            {
+                System.out.println("Client closed connection!");
+            }
+        }
+        while (gamePlaying)
+        {
+            if (turn) 
+            {
+                sendTurnMessage();
+                try
+                {
+                    String receivedMessage = receiveStream.readUTF();
+
+                    int selectedSquareNumber = Integer.parseInt(receivedMessage) - 1;
+
+                    squares.set(selectedSquareNumber, 1); 
+
+                    Boolean won = checkWinCondition();
+
+                    if (!won)
+                    {
+                        turn = false;
+
+                        notifyOtherPlayer(receivedMessage);
+                    } else
+                    {
+                        sendStream.writeUTF("Won"); 
+                        turn = false;
+                        otherPlayer.disableButton(receivedMessage);
+                        otherPlayer.gameOver(); 
+                        gamePlaying = false; 
+                    }
+                } catch (IOException ex)
+                {
+                    System.out.println("Client closed connection!");
+                    break;
+                }
+            }
+        }
+    }
+
+    public void sendTurnMessage()
+    {
+        try
+        {
+            sendStream.writeUTF("YourTurn");
+        } catch (IOException ex)
+        {
+            System.out.println("Failed to send message!");
+        }
+    }
+
+    public void notifyOtherPlayer(String buttonNumber)
+    {
+        otherPlayer.disableButton(buttonNumber);
+        otherPlayer.turn = true;
+
+        if (observerSendStream != null)
+        {
+            try
+            {
+                observerSendStream.writeUTF("Disable");
+                observerSendStream.writeUTF(buttonNumber);
+                observerSendStream.writeUTF(Character.toString(symbol));
+                System.out.println("[x] Sending " + symbol + " to observer.");
+            } catch (IOException ex)
+            {
+                System.out.println("Failed to send!");
+            }
+        }
+    }
+
+    public void disableButton(String buttonNumber)
+    {
+        try // Try to do the following
+        {
+            sendStream.writeUTF("Disable");
+            sendStream.writeUTF(buttonNumber);
+        } catch (IOException ex)
+        {
+            System.out.println("Failed to send!");
+        }
+
+    }
+
+    private Boolean checkWinCondition()
+    {
+        if (squares.get(0) == 1 && squares.get(1) == 1 && squares.get(2) == 1)
+        {
+            return true;
+        }
+        if (squares.get(3) == 1 && squares.get(4) == 1 && squares.get(5) == 1)
+        {
+            return true;
+        }
+        if (squares.get(6) == 1 && squares.get(7) == 1 && squares.get(8) == 1)
+        {
+            return true;
+        }
+
+        if (squares.get(0) == 1 && squares.get(3) == 1 && squares.get(6) == 1)
+        {
+            return true;
+        }
+        if (squares.get(1) == 1 && squares.get(4) == 1 && squares.get(7) == 1)
+        {
+            return true;
+        }
+        if (squares.get(2) == 1 && squares.get(5) == 1 && squares.get(8) == 1)
+        {
+            return true;
+        }
+
+        if (squares.get(0) == 1 && squares.get(4) == 1 && squares.get(8) == 1)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    public void gameOver()
+    {
+        try
+        {
+            sendStream.writeUTF("Lost");
+        } catch (IOException ex)
+        {
+            System.out.println("Failed to send message!");
+        }
+
+    }
+}
